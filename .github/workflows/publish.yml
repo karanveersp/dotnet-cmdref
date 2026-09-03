@@ -1,0 +1,51 @@
+name: Publish
+
+# Triggered by pushing a version tag, e.g.:
+#   git tag v1.2.0 && git push origin v1.2.0
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # enable GitHub OIDC token issuance for Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Pack
+        run: dotnet pack Cmdref/Cmdref.fsproj -c Release -p:Version=${{ steps.version.outputs.version }} -o ./artifacts
+
+      # Exchanges this job's OIDC token for a short-lived NuGet API key -
+      # no long-lived secret needs to be stored or rotated.
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to NuGet
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

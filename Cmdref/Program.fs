@@ -2,6 +2,7 @@
 open Prompts
 open Model
 open System.IO
+open Spectre.Console
 
 [<Literal>]
 let AppName = "cmdref"
@@ -20,6 +21,8 @@ let cmdsProvider = fun () -> ReadFileText CommandsFile
 let mutable CommandsMap = ParseCommands cmdsProvider
 let mutable finished = false
 
+AnsiConsole.Write(Rule("[bold cyan]cmdref[/]").LeftJustified())
+
 while not finished do
     if CommandsMap.IsEmpty then
         printfn "No commands saved"
@@ -36,6 +39,6 @@ while not finished do
 
         match selectedAction with
         | Exit ->
-            printfn "Bye!"
+            AnsiConsole.MarkupLine("[cyan]Bye![/]")
             finished <- true
         | _ -> CommandsMap <- ProcessAction CommandsFile CommandsMap selectedAction

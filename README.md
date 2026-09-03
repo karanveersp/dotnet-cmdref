@@ -32,6 +32,10 @@ When creating a command, the user will be prompted for the following:
 3. `Description` - A longer description explaining the command.
 4. `Command` - The command itself. Multiline commands currently not supported but contributions are welcome.
 
+When updating a command, existing values are pre-filled so you can just press Enter to keep them, or edit only what changed.
+
+When viewing a command, it is displayed in a bordered panel, and you're offered to copy it straight to your clipboard.
+
 All commands are stored in a `.json` file in a local app config directory named `cmdref`.
 
 This file can be backed up or copied to other machines to access your saved commands. It is intentionally kept in a pretty-printed json format so it can also be edited manually by a user.

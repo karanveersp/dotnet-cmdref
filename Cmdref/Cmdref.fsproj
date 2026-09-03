@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <VersionPrefix>1.1.4</VersionPrefix>
   </PropertyGroup>
@@ -32,7 +32,7 @@
 
   <!-- Dotnet Tool Specific settings -->
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <PackAsTool>true</PackAsTool>
     <PackageId>dotnet-cmdref</PackageId>
     <ToolCommandName>cmdref</ToolCommandName>
@@ -46,14 +46,15 @@
     <Compile Include="Prompts.fs" />
     <Compile Include="Util.fs" />
     <Compile Include="Program.fs" />
-    <None Include="../README.md" Pack="true" PackagePath=""/>
+    <None Include="../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Chiron" Version="6.3.1" />
     <PackageReference Include="Sharprompt" Version="2.4.0" />
-    <PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.7.0">
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    <PackageReference Include="TextCopy" Version="6.2.1" />
+    <PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.14.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-    </PackageReference>  
+    </PackageReference>
   </ItemGroup>
 </Project>

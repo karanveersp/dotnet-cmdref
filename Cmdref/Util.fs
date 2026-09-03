@@ -2,7 +2,9 @@
 
 open System.IO
 open System
-open Chiron
+open System.Text.Json
+open System.Text.Json.Serialization
+open Spectre.Console
 
 open Model
 open Prompts
@@ -27,12 +29,14 @@ let CreateDirectoryIfNotExist (dirpath: string) =
     if not (Directory.Exists dirpath) then
         Directory.CreateDirectory(dirpath) |> ignore
 
+let private jsonOptions =
+    JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
 
 /// Converts json string to list of commands.
 let JsonToCommands (content: string) : Command list =
     match content with
     | "" -> list.Empty
-    | _ -> content |> Json.parse |> Json.deserialize
+    | _ -> JsonSerializer.Deserialize<Command[]>(content, jsonOptions) |> List.ofArray
 
 
 /// Parses commands from the result of the provider into a map
@@ -53,10 +57,7 @@ let ReadFileText (fpath: string) : string =
 
 /// Converts command list into indented json string
 let CommandsToJson (commands: Command List) =
-    commands
-    |> List.map Json.serialize
-    |> Json.Array
-    |> Json.formatWith JsonFormattingOptions.Pretty
+    JsonSerializer.Serialize(commands |> Array.ofList, jsonOptions)
 
 
 /// Writes list of commands into the file as json
@@ -69,25 +70,23 @@ let WriteCommands (cmdsFilePath: string) (commandsMap: Map<string, Command>) =
 
     File.WriteAllText(cmdsFilePath, json)
 
+/// Commands sorted by platform then name, so entries of the same platform are grouped together.
+let SortedCommands (cmdMap: Map<string, Command>) : Command seq =
+    cmdMap.Values |> Seq.sortBy (fun cmd -> (cmd.Platform, cmd.Name))
 
-let CommandSelection (cmdMap: Map<string, Command>) : string seq =
-    cmdMap.Values
-    |> Seq.map (fun cmd -> sprintf "%s - %s" cmd.Platform cmd.Name)
-    |> Seq.sort
+/// Renders a command's display text for selection prompts, e.g. "dotnet cli - run tests".
+let DisplayText (cmd: Command) : string = sprintf "%s - %s" cmd.Platform cmd.Name
 
-let NameFromSelection (selection: string) : string =
-    let nameParts =
-        selection.Split('-', StringSplitOptions.TrimEntries)
-        |> Seq.tail
+/// Lets the user pick a command from the map and returns the selected entry directly,
+/// so no risky re-parsing of the display text is needed to recover the command name.
+let SelectCommand (message: string) (cmdMap: Map<string, Command>) : Command =
+    SelectionPromptOf message (SortedCommands cmdMap) DisplayText
 
-    String.Join("-", nameParts)
-
-
-let CreateCmdWithName (name: string) =
-    let name = name
-    let command = RequiredTextPrompt "Command"
-    let platform = RequiredTextPrompt "Platform"
-    let description = RequiredTextPrompt "Description"
+let CreateCmdWithName (name: string) (existing: Command option) : Command =
+    let command, platform, description =
+        match existing with
+        | Some e -> TextPromptWithDefault "Command" e.Command, TextPromptWithDefault "Platform" e.Platform, TextPromptWithDefault "Description" e.Description
+        | None -> RequiredTextPrompt "Command", RequiredTextPrompt "Platform", RequiredTextPrompt "Description"
 
     { Name = name
       Command = command
@@ -96,32 +95,46 @@ let CreateCmdWithName (name: string) =
 
 let CreateCmd () =
     let name = RequiredTextPrompt "Command name"
-    CreateCmdWithName name
+    CreateCmdWithName name None
 
 
 let CreateHandler (cmdFilePath: string) (cmdMap: Map<string, Command>) =
     let cmd = CreateCmd()
     let newMap = Map.add cmd.Name cmd cmdMap
     WriteCommands cmdFilePath newMap
+    AnsiConsole.MarkupLine($"[green]Saved '{Markup.Escape(cmd.Name)}'.[/]")
     newMap
 
+/// Renders a command in a bordered panel, with the command text highlighted
+/// so it's easy to spot and copy when recalling it.
 let PrintCommand (cmd: Command) : unit =
-    printfn ""
-    printfn $"Name: {cmd.Name}\nPlatform: {cmd.Platform}\nDescription: {cmd.Description}"
-    printfn $"Command:\n{cmd.Command}\n"
+    let body =
+        $"[bold]Description:[/] {Markup.Escape(cmd.Description)}\n\n[bold]Command:[/]\n[yellow]{Markup.Escape(cmd.Command)}[/]"
+
+    let panel = Panel(body)
+    panel.Header <- PanelHeader($"{Markup.Escape(cmd.Platform)} · {Markup.Escape(cmd.Name)}")
+    panel.Border <- BoxBorder.Rounded
+    AnsiConsole.WriteLine()
+    AnsiConsole.Write(panel)
+
+/// Offers to copy the command text to the clipboard. Clipboard access can fail
+/// in some environments (e.g. missing xclip/xsel on Linux), so failures are reported
+/// without crashing the app.
+let OfferClipboardCopy (cmd: Command) : unit =
+    if ConfirmPrompt "Copy command to clipboard?" true then
+        try
+            TextCopy.ClipboardService.SetText(cmd.Command)
+            AnsiConsole.MarkupLine("[green]Copied to clipboard.[/]")
+        with ex ->
+            AnsiConsole.MarkupLine($"[red]Could not copy to clipboard: {Markup.Escape(ex.Message)}[/]")
 
 let ViewHandler (itemsMap: Map<string, Command>) =
     if (itemsMap.IsEmpty) then
         printfn $"No existing commands found."
     else
-        let entries = CommandSelection itemsMap
-
-        let selectedItem = SelectionPrompt "Select a command" entries
-
-        let cmdName = NameFromSelection selectedItem
-        let cmd = itemsMap.[cmdName]
-
+        let cmd = SelectCommand "Select a command" itemsMap
         PrintCommand cmd
+        OfferClipboardCopy cmd
 
     itemsMap
 
@@ -140,40 +153,31 @@ let GetUserAction () : Action =
     ActionFromString action
 
 let UpdateHandler (cmdsFilePath: string) (itemsMap: Map<string, Command>) =
-    let entries = CommandSelection itemsMap
-
-    let selectedItem = SelectionPrompt "Select command to update" entries
-
-    let cmdName = NameFromSelection selectedItem
-    let cmd = itemsMap.[cmdName]
+    let cmd = SelectCommand "Select command to update" itemsMap
     PrintCommand cmd
 
-    let cmd = CreateCmdWithName cmdName
-    let newMap = Map.add cmdName cmd itemsMap
+    let updated = CreateCmdWithName cmd.Name (Some cmd)
+    let newMap = Map.add cmd.Name updated itemsMap
     WriteCommands cmdsFilePath newMap
+    AnsiConsole.MarkupLine($"[green]Updated '{Markup.Escape(cmd.Name)}'.[/]")
     newMap
 
 
 let DeleteHandler (cmdsFilePath: string) (itemsMap: Map<string, Command>) =
-    let entries = CommandSelection itemsMap
-
     if (itemsMap.IsEmpty) then
         printfn "No commands to delete."
         itemsMap
     else
-
-        let selectedItem = SelectionPrompt "Select command to delete" entries
-
-        let cmdName = NameFromSelection selectedItem
-        let cmd = itemsMap.[cmdName]
+        let cmd = SelectCommand "Select command to delete" itemsMap
         PrintCommand cmd
 
         let confirm =
-            ConfirmPrompt $"Are you sure you want to delete entry ({cmdName})?" false
+            ConfirmPrompt $"Are you sure you want to delete entry ({cmd.Name})?" false
 
         if confirm then
-            let newMap = Map.remove cmdName itemsMap
+            let newMap = Map.remove cmd.Name itemsMap
             WriteCommands cmdsFilePath newMap
+            AnsiConsole.MarkupLine($"[green]Deleted '{Markup.Escape(cmd.Name)}'.[/]")
             newMap
         else
             itemsMap
