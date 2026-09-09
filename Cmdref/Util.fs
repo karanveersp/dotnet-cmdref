@@ -85,8 +85,14 @@ let SelectCommand (message: string) (cmdMap: Map<string, Command>) : Command =
 let CreateCmdWithName (name: string) (existing: Command option) : Command =
     let command, platform, description =
         match existing with
-        | Some e -> TextPromptWithDefault "Command" e.Command, TextPromptWithDefault "Platform" e.Platform, TextPromptWithDefault "Description" e.Description
-        | None -> RequiredTextPrompt "Command", RequiredTextPrompt "Platform", RequiredTextPrompt "Description"
+        | Some e ->
+            MultilineInputWithDefault "Command" e.Command,
+            TextPromptWithDefault "Platform" e.Platform,
+            TextPromptWithDefault "Description" e.Description
+        | None ->
+            ReadMultilineInput "Command",
+            RequiredTextPrompt "Platform",
+            RequiredTextPrompt "Description"
 
     { Name = name
       Command = command
